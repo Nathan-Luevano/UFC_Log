@@ -223,9 +223,9 @@ def predict_fight(red_fighter_stats, blue_fighter_stats):
     }
 
 #test
-blue_fighter = {'wins_total': 16, 'losses_total': 4, 'age': 30, 'height': 75, 'weight': 185, 'reach': 75, 'stance': 'Orthodox', 'SLpM_total': 4.45, 'SApM_total': 3.26, 'sig_str_acc_total': 0.55, 'td_acc_total': 0.32, 'str_def_total': 0.58, 'td_def_total': 0.78, 'sub_avg': 1.1, 'td_avg': 0.85}
+red_fighter = {'wins_total': 16, 'losses_total': 4, 'age': 30, 'height': 75, 'weight': 185, 'reach': 75, 'stance': 'Orthodox', 'SLpM_total': 4.45, 'SApM_total': 3.26, 'sig_str_acc_total': 0.55, 'td_acc_total': 0.32, 'str_def_total': 0.58, 'td_def_total': 0.78, 'sub_avg': 1.1, 'td_avg': 0.85}
 
-red_fighter = {'wins_total': 17, 'losses_total': 1, 'age': 32, 'height': 73, 'weight': 185, 'reach': 75, 'stance': 'Southpaw', 'SLpM_total': 3.61, 'SApM_total': 2.34, 'sig_str_acc_total': 0.6, 'td_acc_total': 0.6, 'str_def_total': 0.62, 'td_def_total': 0.76, 'sub_avg': 0.5, 'td_avg': 1.56}
+blue_fighter = {'wins_total': 17, 'losses_total': 1, 'age': 32, 'height': 73, 'weight': 185, 'reach': 75, 'stance': 'Southpaw', 'SLpM_total': 3.61, 'SApM_total': 2.34, 'sig_str_acc_total': 0.6, 'td_acc_total': 0.6, 'str_def_total': 0.62, 'td_def_total': 0.76, 'sub_avg': 0.5, 'td_avg': 1.56}
 
 prediction_result = predict_fight(red_fighter, blue_fighter)
 
