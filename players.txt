@@ -1,0 +1,39 @@
+Caio BorralhoRecord: 17-1-0 (1 NC)
+The Natural
+
+Height: 6' 1"
+Weight: 185 lbs.
+Reach: 75"
+STANCE: Southpaw
+DOB: Jan 16, 1993
+Career statistics:
+SLpM: 3.61
+Str. Acc.: 60%
+SApM: 2.34
+Str. Def: 62%
+TD Avg.: 1.56
+TD Acc.: 60%
+TD Def.: 76%
+Sub. Avg.: 0.5
+Nassourdine ImavovRecord: 16-4-0 (1 NC)
+The Sniper
+
+Height: 6' 3"
+Weight: 185 lbs.
+Reach: 75"
+STANCE: Orthodox
+DOB: Mar 01, 1995
+Career statistics:
+SLpM: 4.45
+Str. Acc.: 55%
+SApM: 3.26
+Str. Def: 58%
+TD Avg.: 0.85
+TD Acc.: 32%
+TD Def.: 78%
+Sub. Avg.: 1.1
+
+Player: Caio Borralho
+{'wins_total': 17, 'losses_total': 1, 'age': 32, 'height': 73, 'weight': 185, 'reach': 75, 'stance': 'Southpaw', 'SLpM_total': 3.61, 'SApM_total': 2.34, 'sig_str_acc_total': 0.6, 'td_acc_total': 0.6, 'str_def_total': 0.62, 'td_def_total': 0.76, 'sub_avg': 0.5, 'td_avg': 1.56}
+Player: Nassourdine Imavov
+{'wins_total': 16, 'losses_total': 4, 'age': 30, 'height': 75, 'weight': 185, 'reach': 75, 'stance': 'Orthodox', 'SLpM_total': 4.45, 'SApM_total': 3.26, 'sig_str_acc_total': 0.55, 'td_acc_total': 0.32, 'str_def_total': 0.58, 'td_def_total': 0.78, 'sub_avg': 1.1, 'td_avg': 0.85}
