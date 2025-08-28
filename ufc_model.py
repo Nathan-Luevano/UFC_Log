@@ -1,27 +1,146 @@
 import pandas as pd
+import numpy as np
 from sklearn.model_selection import train_test_split
-from sklearn.linear_model import LogisticRegression
-from sklearn.preprocessing import LabelEncoder, StandardScaler
-from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
+from sklearn.preprocessing import LabelEncoder
+from sklearn.metrics import accuracy_score, confusion_matrix
 import matplotlib.pyplot as plt
+
+class CustomLogisticRegression:
+    def __init__(self, learning_rate=0.01, max_iterations=1000, tolerance=1e-6, 
+                 l1_reg=0.0, l2_reg=0.01, lr_decay=0.95, patience=50):
+        self.learning_rate = learning_rate
+        self.initial_lr = learning_rate
+        self.max_iterations = max_iterations
+        self.tolerance = tolerance
+        self.l1_reg = l1_reg  
+        self.l2_reg = l2_reg  
+        self.lr_decay = lr_decay  
+        self.patience = patience  
+        self.weights = None
+        self.bias = None
+        self.cost_history = []
+        self.val_cost_history = []
+        
+    def _sigmoid(self, z):
+        z = np.clip(z, -500, 500)
+        return 1 / (1 + np.exp(-z))
+    
+    def _compute_cost(self, y_true, y_pred, weights):
+        epsilon = 1e-15
+        y_pred = np.clip(y_pred, epsilon, 1 - epsilon)
+        
+        m = len(y_true)
+        base_cost = -1/m * np.sum(y_true * np.log(y_pred) + (1 - y_true) * np.log(1 - y_pred))
+        
+        l1_cost = self.l1_reg * np.sum(np.abs(weights))
+        l2_cost = self.l2_reg * np.sum(weights ** 2)
+        
+        total_cost = base_cost + l1_cost + l2_cost
+        return total_cost
+    
+    def fit(self, X, y, X_val=None, y_val=None):
+        m, n = X.shape
+        self.weights = np.random.normal(0, 0.01, n)
+        self.bias = 0
+        
+        if X_val is None:
+            from sklearn.model_selection import train_test_split
+            X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.15, random_state=42)
+        else:
+            X_train, y_train = X, y
+        
+        m_train = len(y_train)
+        best_val_cost = float('inf')
+        patience_counter = 0
+        
+        for i in range(self.max_iterations):
+            z_train = np.dot(X_train, self.weights) + self.bias
+            y_pred_train = self._sigmoid(z_train)
+            
+            train_cost = self._compute_cost(y_train, y_pred_train, self.weights)
+            self.cost_history.append(train_cost)
+            
+            z_val = np.dot(X_val, self.weights) + self.bias
+            y_pred_val = self._sigmoid(z_val)
+            val_cost = self._compute_cost(y_val, y_pred_val, np.zeros_like(self.weights))
+            self.val_cost_history.append(val_cost)
+            
+            dw = (1/m_train) * np.dot(X_train.T, (y_pred_train - y_train))
+            dw += self.l1_reg * np.sign(self.weights) + 2 * self.l2_reg * self.weights
+            
+            db = (1/m_train) * np.sum(y_pred_train - y_train)
+            
+            self.weights -= self.learning_rate * dw
+            self.bias -= self.learning_rate * db
+            
+            if (i + 1) % 100 == 0:
+                self.learning_rate = self.learning_rate * self.lr_decay
+            
+            if val_cost < best_val_cost:
+                best_val_cost = val_cost
+                patience_counter = 0
+            else:
+                patience_counter += 1
+                
+            if patience_counter >= self.patience:
+                print(f"Early stopping at iteration {i+1} (val_cost: {val_cost:.6f})")
+                break
+            
+            # Convergence check on training cost
+            if i > 0 and abs(self.cost_history[-2] - self.cost_history[-1]) < self.tolerance:
+                print(f"Converged after {i+1} iterations (train_cost: {train_cost:.6f})")
+                break
+        
+        print(f"Final train cost: {self.cost_history[-1]:.6f}, val cost: {self.val_cost_history[-1]:.6f}")
+        return self
+    
+    def predict_proba(self, X):
+        z = np.dot(X, self.weights) + self.bias
+        probabilities = self._sigmoid(z)
+        return np.column_stack([1 - probabilities, probabilities])
+    
+    def predict(self, X):
+        probabilities = self.predict_proba(X)[:, 1]
+        return (probabilities >= 0.5).astype(int)
+    
+    # coefficients (weights)
+    @property
+    def coef_(self):
+        return self.weights.reshape(1, -1) if self.weights is not None else None
+
+#ustom Standard Scaler  
+class CustomStandardScaler:
+    def __init__(self):
+        self.mean_ = None
+        self.std_ = None
+        
+    def fit(self, X):
+        self.mean_ = np.mean(X, axis=0)
+        self.std_ = np.std(X, axis=0)
+        self.std_[self.std_ == 0] = 1
+        return self
+        
+    def transform(self, X):
+        return (X - self.mean_) / self.std_
+        
+    def fit_transform(self, X):
+        return self.fit(X).transform(X)
 
 df = pd.read_csv('clean_ufc_data.csv')
 
-# print(f"Dataset shape: {df.shape}")
+print(f"Dataset shape: {df.shape}")
 # print(f"Missing values:\n{df.isnull().sum()}")
 
-# many missing value del
 df_clean = df.dropna().copy()
-# print(f"After dropping missing values: {df_clean.shape}")
+print(f"After dropping missing values: {df_clean.shape}")
 
-# composite scores for r &B
 red_score = (
     df_clean['r_wins_total'] * 0.3 + 
     (df_clean['r_wins_total'] / (df_clean['r_wins_total'] + df_clean['r_losses_total'] + 1)) * 0.2 +
     df_clean['r_SLpM_total'] * 0.1 +
     df_clean['r_sig_str_acc_total'] * 0.1 +
     df_clean['r_str_def_total'] * 0.1 +
-    (40 - df_clean['r_age']) * 0.05 +
+    (40 - df_clean['r_age']) * 0.05 +  
     (df_clean['r_reach'] / 100) * 0.05 +
     (df_clean['r_height'] / 100) * 0.1
 )
@@ -32,7 +151,7 @@ blue_score = (
     df_clean['b_SLpM_total'] * 0.1 +
     df_clean['b_sig_str_acc_total'] * 0.1 +
     df_clean['b_str_def_total'] * 0.1 +
-    (40 - df_clean['b_age']) * 0.05 +  
+    (40 - df_clean['b_age']) * 0.05 +
     (df_clean['b_reach'] / 100) * 0.05 +
     (df_clean['b_height'] / 100) * 0.1
 )
@@ -59,38 +178,46 @@ feature_columns = [
 X = df_clean[feature_columns]
 y = df_clean['target']
 
-#scale
-scaler = StandardScaler()
-X_scaled = scaler.fit_transform(X)
+scaler = CustomStandardScaler()
+X_scaled = scaler.fit_transform(X.values)
 
-# split into train/test sets
-X_train, X_test, y_train, y_test = train_test_split(X_scaled, y, test_size=0.2, random_state=42)
+X_train, X_test, y_train, y_test = train_test_split(X_scaled, y.values, test_size=0.2, random_state=42)
 
-model = LogisticRegression(random_state=42, max_iter=1000)
+model = CustomLogisticRegression(
+    learning_rate=0.05,      
+    max_iterations=5000,     
+    tolerance=1e-8,          
+    l1_reg=0.001,           
+    l2_reg=0.01,            
+    lr_decay=0.98,          
+    patience=100            
+)
+
 model.fit(X_train, y_train)
 
-# make predictions
+# make predictions with custom model
 y_pred = model.predict(X_test)
 y_pred_proba = model.predict_proba(X_test)[:, 1]
 
-# accuracy = accuracy_score(y_test, y_pred)
-# print(f"\nModel Accuracy: {accuracy:.3f}")
+# evaluation
+accuracy = accuracy_score(y_test, y_pred)
+print(f"\nModel Accuracy: {accuracy:.3f}")
 # print("\nClassification Report:")
 # print(classification_report(y_test, y_pred))
 # print("\nConfusion Matrix:")
-# print(confusion_matrix(y_test, y_pred))
+print(confusion_matrix(y_test, y_pred))
 
 feature_importance = pd.DataFrame({
     'feature': feature_columns,
     'coefficient': model.coef_[0]
 })
-feature_importance['abs_coefficient'] = abs(feature_importance['coefficient'])
-feature_importance = feature_importance.sort_values('abs_coefficient', ascending=False)
+# feature_importance['abs_coefficient'] = abs(feature_importance['coefficient'])
+# feature_importance = feature_importance.sort_values('abs_coefficient', ascending=False)
 
 # print("\nTop 10 Most Important Features:")
 # print(feature_importance.head(10))
 
-def vis_modl():
+def mdl_vs():
     # simple visualizations
     plt.figure(figsize=(15, 10))
 
@@ -148,22 +275,52 @@ def vis_modl():
     plt.savefig('ufc_model_analysis.png', dpi=300, bbox_inches='tight')
     plt.show()
 
-    results_df = pd.DataFrame({
-        'actual': y_test,
-        'predicted': y_pred,
-        'probability': y_pred_proba
-    })
-    results_df.to_csv('model_predictions.csv', index=False)
+results_df = pd.DataFrame({
+    'actual': y_test,
+    'predicted': y_pred,
+    'probability': y_pred_proba
+})
+results_df.to_csv('model_predictions.csv', index=False)
 
-    print(f"\nModel training complete!")
-    print(f"Visualizations saved as 'ufc_model_analysis.png'")
-    print(f"Predictions saved as 'model_predictions.csv'")
+def plot_training_curves():
+    plt.figure(figsize=(12, 4))
+    
+    plt.subplot(1, 2, 1)
+    plt.plot(model.cost_history, label='Training Cost', alpha=0.7)
+    plt.plot(model.val_cost_history, label='Validation Cost', alpha=0.7)
+    plt.xlabel('Iteration')
+    plt.ylabel('Cost')
+    plt.title('Training vs Validation Cost')
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    
+    plt.subplot(1, 2, 2)
+    # Plot last 500 iterations for better detail
+    start_idx = max(0, len(model.cost_history) - 500)
+    plt.plot(model.cost_history[start_idx:], label='Training Cost', alpha=0.7)
+    plt.plot(model.val_cost_history[start_idx:], label='Validation Cost', alpha=0.7)
+    plt.xlabel('Iteration (Last 500)')
+    plt.ylabel('Cost')
+    plt.title('Training Curves (Detailed View)')
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    plt.savefig('training_curves.png', dpi=300, bbox_inches='tight')
+    plt.show()
+
+print(f"Visualizations saved as 'ufc_model_analysis.png'")
+print(f"Predictions saved as 'model_predictions.csv'")
+print(f"Training curves saved as 'training_curves.png'")
+
+# Plot training curves to check for overfitting
+# plot_training_curves()
 
 def predict_fight(red_fighter_stats, blue_fighter_stats):    
     fight_data = {
         'is_title_bout': 0,  
         'weight_class_encoded': 0,  
-        'gender_encoded': 0,  
+        'gender_encoded': 0,  # assume male
         'r_wins_total': red_fighter_stats['wins_total'],
         'r_losses_total': red_fighter_stats['losses_total'],
         'r_age': red_fighter_stats['age'],
@@ -211,7 +368,7 @@ def predict_fight(red_fighter_stats, blue_fighter_stats):
         fight_data['b_stance_encoded'] = 0
     
     fight_df = pd.DataFrame([fight_data])
-    fight_scaled = scaler.transform(fight_df[feature_columns])
+    fight_scaled = scaler.transform(fight_df[feature_columns].values)
     
     prediction = model.predict(fight_scaled)[0]
     probability = model.predict_proba(fight_scaled)[0][1]
@@ -222,15 +379,14 @@ def predict_fight(red_fighter_stats, blue_fighter_stats):
         'blue_win_probability': 1 - probability
     }
 
-#test
-red_fighter = {'wins_total': 16, 'losses_total': 4, 'age': 30, 'height': 75, 'weight': 185, 'reach': 75, 'stance': 'Orthodox', 'SLpM_total': 4.45, 'SApM_total': 3.26, 'sig_str_acc_total': 0.55, 'td_acc_total': 0.32, 'str_def_total': 0.58, 'td_def_total': 0.78, 'sub_avg': 1.1, 'td_avg': 0.85}
+red_fighter = {'wins_total': 18, 'losses_total': 2, 'age': 28, 'height': 71, 'weight': 170, 'reach': 73, 'stance': 'Switch', 'SLpM_total': 6.84, 'SApM_total': 4.53, 'sig_str_acc_total': 0.52, 'td_acc_total': 0.11, 'str_def_total': 0.64, 'td_def_total': 0.69, 'sub_avg': 0.2, 'td_avg': 0.16}
 
-blue_fighter = {'wins_total': 17, 'losses_total': 1, 'age': 32, 'height': 73, 'weight': 185, 'reach': 75, 'stance': 'Southpaw', 'SLpM_total': 3.61, 'SApM_total': 2.34, 'sig_str_acc_total': 0.6, 'td_acc_total': 0.6, 'str_def_total': 0.62, 'td_def_total': 0.76, 'sub_avg': 0.5, 'td_avg': 1.56}
+blue_fighter = {'wins_total': 24, 'losses_total': 4, 'age': 37, 'height': 71, 'weight': 170, 'reach': 72, 'stance': 'Orthodox', 'SLpM_total': 4.46, 'SApM_total': 3.78, 'sig_str_acc_total': 0.43, 'td_acc_total': 0.38, 'str_def_total': 0.55, 'td_def_total': 0.9, 'sub_avg': 0.1, 'td_avg': 2.24}
 
 prediction_result = predict_fight(red_fighter, blue_fighter)
 
 print(f"Red Fighter: {red_fighter['wins_total']}-{red_fighter['losses_total']}, Age {red_fighter['age']}")
 print(f"Blue Fighter: {blue_fighter['wins_total']}-{blue_fighter['losses_total']}, Age {blue_fighter['age']}")
 print(f"\nPrediction: {prediction_result['winner']}")
-print(f"Red Fighter Win Probability: {prediction_result['red_win_probability']:.2%}")
-print(f"Blue Fighter Win Probability: {prediction_result['blue_win_probability']:.2%}")
+print(f"Red Fighter Win Probability: {prediction_result['red_win_probability']:.1%}")
+print(f"Blue Fighter Win Probability: {prediction_result['blue_win_probability']:.1%}")
