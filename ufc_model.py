@@ -108,7 +108,6 @@ class CustomLogisticRegression:
     def coef_(self):
         return self.weights.reshape(1, -1) if self.weights is not None else None
 
-#ustom Standard Scaler  
 class CustomStandardScaler:
     def __init__(self):
         self.mean_ = None

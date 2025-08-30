@@ -1,4 +1,3 @@
-# Imports
 import numpy as np # linear algebra
 import pandas as pd # data processing, CSV file I/O (e.g. pd.read_csv)
 import matplotlib.pyplot as plt
@@ -107,6 +106,7 @@ class CustomLogisticRegression:
     def coef_(self):
         return self.weights.reshape(1, -1) if self.weights is not None else None
 
+# Custom Standard Scaler  
 class CustomStandardScaler:
     def __init__(self):
         self.mean_ = None
@@ -124,32 +124,32 @@ class CustomStandardScaler:
     def fit_transform(self, X):
         return self.fit(X).transform(X)
 
-
-
-# Input Data
-for dirname, _, filenames in os.walk('/kaggle/input'):
-    for filename in filenames:
-        print(os.path.join(dirname, filename)) 
-
-
 # Load in dataset
 df = pd.read_csv("ufc-master.csv")
 
-fighter_names = df[['R_fighter', 'B_fighter']]
-odds_all = df[['R_odds', 'B_odds']]
+# Check if odds columns exist and validate data
+if 'R_odds' not in df.columns or 'B_odds' not in df.columns:
+    print("ERROR: R_odds or B_odds columns not found in dataset")
+    exit(1)
 
+# drop rows with missing odds instead of filling with 0
+X = df[['R_odds', 'B_odds']].dropna()
+print(f"Dropped {len(df) - len(X)} rows with missing odds data")
 
+# Need to filter df to same rows as X since we dropped missing odds
+df_clean = df.loc[X.index]
 
-# Define features X and labels y
-X = df[['R_odds', 'B_odds']].fillna(0)
+fighter_names = df_clean[['R_fighter', 'B_fighter']]
+odds_all = df_clean[['R_odds', 'B_odds']]
 
-df.loc[df['Winner'] == 'Red', 'label'] = 0
-df.loc[df['Winner'] == 'Blue', 'label'] = 1
+# Fixed labeling: Red winner = 1, Blue winner = 0 (was backwards before)
+df_clean.loc[df_clean['Winner'] == 'Red', 'label'] = 1
+df_clean.loc[df_clean['Winner'] == 'Blue', 'label'] = 0
 
-# Convert dtype to int explicitly to avoid floats like 0.0, 1.0
-df['label'] = df['label'].astype(int)
+# Convert dtype to int explicitly to avoid floats
+df_clean['label'] = df_clean['label'].astype(int)
 
-y = df['label'].values
+y = df_clean['label'].values
 
 
 
@@ -178,20 +178,21 @@ from sklearn.metrics import accuracy_score
 print("Accuracy:", accuracy_score(y_test, predictions))
 
 
-# EV function
+# Fixed was calculating wrong before
 def get_bet_ev(odds, prob):
-    if odds > 0:  # e.g. +150
-        return (odds * prob) - (100 * (1 - prob))
-    else:  # e.g. -150
-        return ((100 / abs(odds)) * 100 * prob) - (100 * (1 - prob))
+    if odds > 0:  # like +150 - win $150 on $100 bet
+        return (odds/100) * prob - (1 - prob)
+    else:  # like -150 - bet $150 to win $100
+        return (100/abs(odds)) * prob - (1 - prob)
 
 
 # Build results dataframe
 results = names_test.copy().reset_index(drop=True)
 results['R_odds'] = odds_test.reset_index(drop=True)['R_odds']
 results['B_odds'] = odds_test.reset_index(drop=True)['B_odds']
-results['P_red'] = probs[:, 0]
-results['P_blue'] = probs[:, 1]
+# Now probs[:, 1] is Red win probability since we fixed the labels
+results['P_red'] = probs[:, 1]  
+results['P_blue'] = probs[:, 0]
 results['EV_red'] = results.apply(lambda row: get_bet_ev(row['R_odds'], row['P_red']), axis=1)
 results['EV_blue'] = results.apply(lambda row: get_bet_ev(row['B_odds'], row['P_blue']), axis=1)
 
