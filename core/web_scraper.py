@@ -3,6 +3,8 @@ import requests.exceptions
 from bs4 import BeautifulSoup
 import sqlite3
 import time
+import re
+import hashlib
 from urllib.parse import urljoin
 
 class UFCScraper:
@@ -61,7 +63,53 @@ class UFCScraper:
         ''')
         conn.commit()
         conn.close()
-    
+
+    def _is_challenge(self, response):
+        # ufcstats.com serves a small JS proof-of-work interstitial
+        # ("Checking your browser…") instead of the real page until a
+        # clearance cookie is obtained. It's tiny and posts back to /__c.
+        if len(response.content) > 8192:
+            return False
+        body = response.content
+        return b'Checking your browser' in body or b"'/__c'" in body or b'"/__c"' in body
+
+    def _solve_challenge(self, html):
+        # The page embeds:
+        #   var nonce="<hex>", target=new Array(<difficulty>+1).join('0');
+        #   while(sha256(nonce+':'+n).slice(0,target.length)!==target){n++;}
+        #   xhr POST /__c with nonce=<nonce>&n=<n>  -> sets clearance cookie
+        nonce_match = re.search(r'nonce\s*=\s*"([0-9a-fA-F]+)"', html)
+        difficulty_match = re.search(r'new Array\(\s*(\d+)\s*\+\s*1\s*\)\.join\(', html)
+        if not nonce_match or not difficulty_match:
+            raise Exception("Bot challenge detected but its parameters could not be parsed")
+
+        nonce = nonce_match.group(1)
+        difficulty = int(difficulty_match.group(1))
+        prefix = '0' * difficulty
+
+        n = 0
+        while hashlib.sha256(f"{nonce}:{n}".encode()).hexdigest()[:difficulty] != prefix:
+            n += 1
+
+        # POST the solution on the same session so the clearance cookie sticks.
+        self.session.post(
+            urljoin(self.base_url, '/__c'),
+            data={'nonce': nonce, 'n': n},
+            timeout=30,
+        )
+
+    def _get(self, url, timeout=30):
+        # Fetch a URL, transparently solving the bot challenge once if served.
+        response = self.session.get(url, timeout=timeout)
+        response.raise_for_status()
+        if self._is_challenge(response):
+            self._solve_challenge(response.text)
+            response = self.session.get(url, timeout=timeout)
+            response.raise_for_status()
+            if self._is_challenge(response):
+                raise Exception("Bot challenge not cleared after solving proof-of-work")
+        return response
+
     def get_fighters_list(self, progress_callback=None):
         all_fighters = []
         url_to_names = {}
@@ -75,8 +123,7 @@ class UFCScraper:
                 progress_callback(f"Fetching fighters starting with '{char}'...", page_num - 1, total_pages)
             
             try:
-                response = self.session.get(fighters_url, timeout=30)
-                response.raise_for_status()
+                response = self._get(fighters_url, timeout=30)
             except requests.exceptions.Timeout:
                 raise Exception(f"Connection timeout while fetching '{char}' fighters")
             except requests.exceptions.ConnectionError:
@@ -143,8 +190,7 @@ class UFCScraper:
     
     def get_fighter_stats(self, fighter_url):
         try:
-            response = self.session.get(fighter_url, timeout=30)
-            response.raise_for_status()
+            response = self._get(fighter_url, timeout=30)
         except requests.exceptions.Timeout:
             raise Exception("Connection timeout")
         except requests.exceptions.ConnectionError:
@@ -182,40 +228,50 @@ class UFCScraper:
                         stats['draws'] = None
         
         # Parse basic physical stats - multiple approaches
-        # Method 1: Look for the standard info boxes
-        info_boxes = soup.find_all('div', class_='b-list__info-box b-list__info-box_style_small-width js-guide')
-        
-        for box in info_boxes:
-            label_elem = box.find('i', class_='b-list__info-box-label')
-            if label_elem:
-                label = label_elem.get_text(strip=True).lower()
-                value_elem = box.find('i', class_='b-list__info-box-value')
-                if value_elem:
-                    value = value_elem.get_text(strip=True)
-                    
-                    if 'height' in label:
-                        stats['height'] = value if value != '--' else None
-                    elif 'weight' in label:
-                        stats['weight'] = value if value != '--' else None
-                    elif 'reach' in label:
-                        stats['reach'] = value if value != '--' else None
-                    elif 'stance' in label:
-                        stats['stance'] = value if value != '--' else None
-                    elif 'dob' in label:
-                        stats['dob'] = value if value != '--' else None
-        
-        # Method 2: Look for alternative structures
+        # Method 1: the standard stat list items. Real ufcstats markup is
+        #   <li class="b-list__box-list-item">
+        #       <i class="b-list__box-item-title">Height:</i> 6' 4"
+        #   </li>
+        # so read the label from the title <i> and take the rest of the item
+        # as the value (the label prefix stripped off).
+        for item in soup.find_all('li', class_='b-list__box-list-item'):
+            label_elem = item.find('i', class_='b-list__box-item-title')
+            if not label_elem:
+                continue
+            label_text = label_elem.get_text(strip=True)
+            label = label_text.lower()
+            value = item.get_text(strip=True)
+            if value.startswith(label_text):
+                value = value[len(label_text):].strip()
+            if not value:
+                continue
+
+            if 'height' in label:
+                stats['height'] = value if value != '--' else None
+            elif 'weight' in label:
+                stats['weight'] = value if value != '--' else None
+            elif 'reach' in label:
+                stats['reach'] = value if value != '--' else None
+            elif 'stance' in label:
+                stats['stance'] = value if value != '--' else None
+            elif 'dob' in label:
+                stats['dob'] = value if value != '--' else None
+
+        # Method 2: fallback for non-standard markup. Constrained to <li>
+        # elements with a short value so a large container element (e.g. a bio
+        # paragraph or the page wrapper) can't be matched and dumped wholesale
+        # into a field.
         if not stats['height']:  # Try alternative parsing
-            # Look for any list items containing physical stats
-            all_list_items = soup.find_all(['li', 'p', 'div'])
-            for item in all_list_items:
+            for item in soup.find_all('li'):
                 text = item.get_text(strip=True)
                 if ':' in text:
                     parts = text.split(':', 1)
                     if len(parts) == 2:
                         key = parts[0].strip().lower()
                         value = parts[1].strip()
-                        
+                        if len(value) > 40:  # too long to be a physical stat
+                            continue
+
                         if 'height' in key and not stats['height']:
                             stats['height'] = value if value != '--' else None
                         elif 'weight' in key and not stats['weight']:
